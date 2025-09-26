@@ -55,8 +55,8 @@ app.get("/callback", async (req, res) => {
       method: "POST",
       headers: { "Accept": "application/json" },
       body: new URLSearchParams({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
         code
       })
     });
@@ -68,39 +68,82 @@ app.get("/callback", async (req, res) => {
         .send(`<pre>OAuth error: ${data.error || "no_access_token"}</pre>`);
     }
 
-    const payload = JSON.stringify({
-      token: data.access_token,
-      provider: "github"
-    });
+    const payload = JSON.stringify({ token: data.access_token, provider: "github" });
+    const ADMIN_URL = "https://correioolindense.com.br/admin/";   // seu painel
 
-    const html = `
-<!doctype html>
+    const html = `<!doctype html>
 <html>
-  <body>
+  <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height:1.4; padding:16px;">
+    <div id="msg">Finalizando autorização…</div>
     <script>
-      (function() {
-        // Envia o token pro /admin e fecha o popup
-        function send() {
-          if (window.opener && !window.opener.closed) {
-            window.opener.postMessage('authorization:github:success:${payload}', '*');
-            window.close();
-          } else {
-            document.body.innerText = 'Authorization complete. You can close this window.';
-          }
+      (function () {
+        var sent = false;
+        var message = 'authorization:github:success:${payload}';
+        var ADMIN_URL = '${ADMIN_URL}';
+
+        function trySendToOpener() {
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(message, '*');
+              sent = true;
+              window.close();
+            }
+          } catch (e) {}
         }
-        send();
-        setTimeout(send, 100);
-        setTimeout(send, 500);
+
+        function tryOpenAdminAndSend() {
+          try {
+            // Abre (ou foca) o /admin em uma janela nomeada
+            var w = window.open(ADMIN_URL, 'decap-admin');
+            if (!w) return false; // popup bloqueado
+            // Tenta enviar várias vezes até o admin carregar e ouvir
+            var attempts = 0;
+            var timer = setInterval(function () {
+              attempts++;
+              try {
+                w.postMessage(message, '*');
+                sent = true;
+                clearInterval(timer);
+                window.close();
+              } catch (e) {}
+              if (attempts > 30) { // ~6s (30 x 200ms)
+                clearInterval(timer);
+                if (!sent) {
+                  document.getElementById('msg').innerHTML =
+                    'Authorization complete, mas não foi possível entregar o login ao painel.<br>' +
+                    'Por favor, <b>permita pop-ups</b> para este site e tente novamente.';
+                }
+              }
+            }, 200);
+            return true;
+          } catch (e) { return false; }
+        }
+
+        // 1) fluxo normal: enviar ao opener e fechar
+        [0, 50, 100, 200, 400, 800].forEach(function(t){ setTimeout(trySendToOpener, t); });
+
+        // 2) fallback: se em ~1s não conseguiu, abre/foca o /admin e tenta por lá
+        setTimeout(function(){
+          if (!sent) {
+            document.getElementById('msg').textContent =
+              'Quase lá… abrindo o painel para finalizar o login.';
+            var opened = tryOpenAdminAndSend();
+            if (!opened) {
+              document.getElementById('msg').innerHTML =
+                'Authorization complete, mas o navegador bloqueou pop-ups.<br>' +
+                'Volte para <b>${ADMIN_URL}</b>, permita pop-ups e tente novamente.';
+            }
+          }
+        }, 1000);
       })();
     </script>
   </body>
 </html>`;
+
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
   } catch (e) {
-    res
-      .status(500)
-      .send(`<pre>Callback error: ${String(e)}</pre>`);
+    res.status(500).send('<pre>Callback error: ' + String(e) + '</pre>');
   }
 });
 

@@ -5,10 +5,10 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-// importante atrás de proxy (Render)
+// atrás de proxy (Render)
 app.set("trust proxy", 1);
 
-// libere seus domínios
+// domínios permitidos a abrir o popup de login
 const ALLOWED_ORIGINS = [
   "https://correioolindense.com.br",
   "https://correioolindense.github.io"
@@ -22,7 +22,7 @@ const { GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET } = process.env;
 app.get("/", (_, res) => res.send("Decap OAuth Provider OK"));
 
 app.get("/auth", (req, res) => {
-  // use sempre HTTPS no callback do Render
+  // use sempre HTTPS no callback do Render ou defina CALLBACK_URL nas env vars
   const host = req.get("host");
   const redirectUri = process.env.CALLBACK_URL || `https://${host}/callback`;
   const url =
@@ -50,7 +50,7 @@ app.get("/callback", async (req, res) => {
     return res.status(401).send(`OAuth error: ${data.error || "no_access_token"}`);
   }
 
-  // IMPORTANTE: o Decap CMS espera esse postMessage com esse prefixo
+  // o Decap espera esse postMessage e que o popup feche sozinho
   const payload = JSON.stringify({ token: data.access_token, provider: "github" });
   const html = `
 <!doctype html>
@@ -67,7 +67,7 @@ app.get("/callback", async (req, res) => {
           }
         }
         send();
-        setTimeout(send, 100); // retries rápidos pro caso de race
+        setTimeout(send, 100);
         setTimeout(send, 500);
       })();
     </script>
@@ -76,3 +76,7 @@ app.get("/callback", async (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
 });
+
+// >>> sem isso o Render mata o processo, porque nada está ouvindo porta
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`OAuth provider rodando na porta ${PORT}`));

@@ -33,7 +33,7 @@ app.get("/auth", (req, res) => {
 
 app.get("/callback", async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.status(400).json({ error: "missing_code" });
+  if (!code) return res.status(400).send("missing_code");
 
   const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
@@ -44,10 +44,35 @@ app.get("/callback", async (req, res) => {
       code
     })
   });
-  const data = await tokenRes.json();
-  if (data.error) return res.status(401).json(data);
-  res.json({ token: data.access_token, provider: "github" });
-});
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`OAuth provider na porta ${PORT}`));
+  const data = await tokenRes.json();
+  if (data.error || !data.access_token) {
+    return res.status(401).send(`OAuth error: ${data.error || "no_access_token"}`);
+  }
+
+  // IMPORTANTE: o Decap CMS espera esse postMessage com esse prefixo
+  const payload = JSON.stringify({ token: data.access_token, provider: "github" });
+  const html = `
+<!doctype html>
+<html>
+  <body>
+    <script>
+      (function() {
+        function send() {
+          if (window.opener) {
+            window.opener.postMessage('authorization:github:success:${payload}', '*');
+            window.close();
+          } else {
+            document.body.innerText = 'Authorization complete. You can close this window.';
+          }
+        }
+        send();
+        setTimeout(send, 100); // retries rápidos pro caso de race
+        setTimeout(send, 500);
+      })();
+    </script>
+  </body>
+</html>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});

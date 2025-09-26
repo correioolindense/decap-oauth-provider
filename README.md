@@ -1,1 +1,3 @@
-# decap-oauth-provider
+Variáveis de ambiente:
+- GITHUB_CLIENT_ID
+- GITHUB_CLIENT_SECRET
